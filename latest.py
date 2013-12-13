@@ -6,7 +6,6 @@ template
 
 import argparse
 import chardet
-import collections
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import feedparser
@@ -20,7 +19,7 @@ import re
 import smtplib
 import sys
 import traceback
-from UserDict import UserDict
+from unicodedict import UnicodeDict
 sys.path.append('/Users/paregorios/Documents/files/L/libZotero/lib/py/libZotero')
 import zotero
 
@@ -145,62 +144,7 @@ def cleanZVal (raw):
     return cooked
 
 
-class UnicodeDict(UserDict):
-    
-    replacements = [
-        (u'\u00A0', u' '),              # non-breaking spaces become normal spaces
-    ]
 
-    def __toUnicode(self, data):
-        if isinstance(data, unicode):
-            return(data)
-        elif isinstance(data, basestring):
-            return unicode(data, 'utf-8')
-        elif isinstance(data, collections.Mapping):
-            return dict(map(self.__toUnicode, data.iteritems()))
-        elif isinstance(data, collections.Iterable):
-            return type(data)(map(self.__toUnicode, data))
-        else:
-            return data
-
-    def __fromUnicode(self, data):
-        return data
-
-
-
-    def __init__(self, cleanValues=True):
-        self.cleanValues = cleanValues
-        UserDict.__init__(self) 
-
-
-    def copy(self):
-        if self.__class__ is UserDict:
-            return UserDict(self.data)         
-        import copy
-        return copy.copy(self)  
-
-    def __keytransform__(self, key):
-
-        cookedKey = key
-        try: 
-            cookedKey = unicode(cookedKey, 'utf-8')
-        except TypeError:
-            pass
-        return cookedKey
-
-    def __getitem__ (self, key, encoding='unicode'):
-        item = UserDict.__getitem__(self, self.__keytransform__(key))
-        if encoding != 'unicode':
-            return self.__toUnicode(item)
-        else:
-            return item
-    
-    def __setitem__(self, key, item):
-        if self.cleanValues:
-            cleanItem = self.__toUnicode(item)
-        else:
-            cleanItem = item
-        UserDict.__setitem__(self, self.__keytransform__(key), cleanItem)
 
 def main ():
 
@@ -209,7 +153,7 @@ def main ():
     if args.verbose:
         l.basicConfig(level=l.DEBUG)
     else:
-        l.basicConfig(level=l.WARNING)
+        l.basicConfig(level=l.INFO)
 
 
     if args.credentials:
@@ -242,13 +186,14 @@ def main ():
             zdatabank = []
             zlib = zotero.Library(libtype, libid, libslug, zapikey, userAgent=useragent)
             for e in d.entries:
+                l.info("processing %s: %s" % (e['zapi_key'], e['title']))
                 zdata = UnicodeDict()
                 l.debug (">>>>>>>>> ENTRY")
                 # clean up and store all the zotero information that came in the intial response
                 for k in sorted(e.keys()):
                     l.debug ("entry content key='%s', value='%s'" % (k, e[k]))
                     zdata[k] = e[k]
-                    l.debug ("    value as stored: '%s'" % zdata[k])
+                    l.debug ("    value as stored: '%s'" % zdata.getEncoded(k))
                 # get the full record from zotero and process its content similarly
                 item = zlib.fetchItem(zdata['zapi_key'])
                 fields = item.apiObject
@@ -257,12 +202,19 @@ def main ():
                     if type(v) == int or len(v) > 0:                        
                         l.debug ("field content key='%s', value='%s'" % (k, fields[k]))
                         zdata[k] = fields[k]
-                        l.debug ("    value as stored: '%s'" % zdata[k])
+                        l.debug ("    value as stored: '%s'" % zdata.getEncoded(k))
                     else:
                         l.warning ("skipping zero-length zotero field with key value '%s'" % k)
-                l.info (zdata)
                 l.debug ("<<<<<<<<< END ENTRY")
                 zdatabank.append(zdata)
+
+        ukeys = []
+        for zdata in zdatabank:
+            for k in zdata.keys():
+                ukeys.append(k.encode('utf-8'))
+        ukeys = list(set(ukeys))
+        for k in sorted(ukeys):
+            print "%s" % k
 
 
 
