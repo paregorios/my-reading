@@ -6,6 +6,7 @@ template
 
 import argparse
 import chardet
+import collections
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import feedparser
@@ -19,6 +20,7 @@ import re
 import smtplib
 import sys
 import traceback
+from UserDict import UserDict
 sys.path.append('/Users/paregorios/Documents/files/L/libZotero/lib/py/libZotero')
 import zotero
 
@@ -28,6 +30,8 @@ DEFAULT_CREDENTIALS = './creds.json'
 CAMEL_FIELDS = [
     u'itemType',
 ]
+
+
 
 def deCamelize (camel):
     return re.sub('([A-Z]+)', r' \1',camel).lower()
@@ -130,6 +134,74 @@ def doAbstract(fields, xmlParent):
                     xmlp = etree.SubElement(absdiv, 'p')
                     xmlp.text = line.strip()
 
+def cleanZVal (raw):
+    # assumes input is unicode
+    replacements = [
+        (u'\u00A0', u' '),
+    ]
+    cooked = raw
+    for r in replacements:
+        cooked = re.sub(r[0], r[1])
+    return cooked
+
+
+class UnicodeDict(UserDict):
+    
+    replacements = [
+        (u'\u00A0', u' '),              # non-breaking spaces become normal spaces
+    ]
+
+    def __toUnicode(self, data):
+        if isinstance(data, unicode):
+            return(data)
+        elif isinstance(data, basestring):
+            return unicode(data, 'utf-8')
+        elif isinstance(data, collections.Mapping):
+            return dict(map(self.__toUnicode, data.iteritems()))
+        elif isinstance(data, collections.Iterable):
+            return type(data)(map(self.__toUnicode, data))
+        else:
+            return data
+
+    def __fromUnicode(self, data):
+        return data
+
+
+
+    def __init__(self, cleanValues=True):
+        self.cleanValues = cleanValues
+        UserDict.__init__(self) 
+
+
+    def copy(self):
+        if self.__class__ is UserDict:
+            return UserDict(self.data)         
+        import copy
+        return copy.copy(self)  
+
+    def __keytransform__(self, key):
+
+        cookedKey = key
+        try: 
+            cookedKey = unicode(cookedKey, 'utf-8')
+        except TypeError:
+            pass
+        return cookedKey
+
+    def __getitem__ (self, key, encoding='unicode'):
+        item = UserDict.__getitem__(self, self.__keytransform__(key))
+        if encoding != 'unicode':
+            return self.__toUnicode(item)
+        else:
+            return item
+    
+    def __setitem__(self, key, item):
+        if self.cleanValues:
+            cleanItem = self.__toUnicode(item)
+        else:
+            cleanItem = item
+        UserDict.__setitem__(self, self.__keytransform__(key), cleanItem)
+
 def main ():
 
     global args
@@ -159,121 +231,151 @@ def main ():
         'Zotero-API-Version':'2',
         'If-Modified-Since-Version':prev_libversion
     }
-    query = 'https://api.zotero.org/%ss/%s/collections/%s/items?order=dateModified&sort=asc&newer=%s' % (libtype, libid, collid, prev_libversion)
-    l.debug("query: %s" % query)
+    query = 'https://api.zotero.org/%ss/%s/collections/%s/items?content=none&order=dateModified&sort=asc&newer=%s' % (libtype, libid, collid, prev_libversion)
+    l.debug("feedparser query: %s" % query)
     d = feedparser.parse(query, request_headers=headers)
     l.debug("response status: %s" % d.status)
     if d.status == 200:
-        print ("entries: %s" % len(d.entries))
+        #l.debug ("entries: %s" % len(d.entries))
         if len(d.entries) > 0:
+            # get and clean data from zotero
+            zdatabank = []
             zlib = zotero.Library(libtype, libid, libslug, zapikey, userAgent=useragent)
-            packages = [] 
             for e in d.entries:
-                l.debug("======================================")
-                l.debug("title %s" % e.title)
-                l.debug("methods:")
-                l.debug(dir(e))
-                l.debug("keys:")
-                for k in e.keys():
-                    l.debug ("key %s: %s" % (k, e[k]))
-                if e[u'zapi_itemtype'] != u'attachment':
-                    itemkey = e.zapi_key
-                    xmldiv = etree.Element('div')
-                    xmldiv.set('id', itemkey)
-                    appendField(xmldiv, 'title', e.title, 'p')
-                    i = zlib.fetchItem(itemkey)
-                    fields = i.apiObject
-                    # print fields
-                    if len(fields.keys()) > 0:
-                        # url
-                        if u'url' in fields:
-                            url = fields[u'url']
-                            if len(url) > 0:
-                                appendField(xmldiv, 'link', url, 'p', 'url')
-                        # creators
-                        doCreators(fields, xmldiv)
-                        # abstract
-                        doAbstract(fields, xmldiv)
-                        # make an ordered list of any other fields
-                        xmllist = etree.SubElement(xmldiv, 'ul')
-                        skipk = [
-                            u'relations',
-                            u'collections',
-                            u'creators',
-                            u'tags',
-                            u'url', 
-                            u'itemKey',
-                            u'itemVersion',
-                            u'title',
-                            u'abstractNote'
-                        ]
-                        keys = sorted(fields.keys())
-                        for k in keys:
-                            v = fields[k]
-                            if v is None:
-                                pass
-                            else:
-                                vt = type(v)
-                                if k in skipk:
-                                    l.debug ("deliberately skipping zotero content field %s" % k)
-                                elif vt is unicode:
-                                    if len(v) > 0:
-                                        appendField(xmllist, k, v)
-                                elif vt is int:
-                                    appendField(xmllist, k, u"%s" % v)
-                                else:
-                                    l.debug ("no handler for %s so skipping zotero content field %s" % (vt, k))
+                zdata = UnicodeDict()
+                l.debug (">>>>>>>>> ENTRY")
+                # clean up and store all the zotero information that came in the intial response
+                for k in sorted(e.keys()):
+                    l.debug ("entry content key='%s', value='%s'" % (k, e[k]))
+                    zdata[k] = e[k]
+                    l.debug ("    value as stored: '%s'" % zdata[k])
+                # get the full record from zotero and process its content similarly
+                item = zlib.fetchItem(zdata['zapi_key'])
+                fields = item.apiObject
+                for k in sorted(fields.keys()):
+                    v = fields[k]
+                    if type(v) == int or len(v) > 0:                        
+                        l.debug ("field content key='%s', value='%s'" % (k, fields[k]))
+                        zdata[k] = fields[k]
+                        l.debug ("    value as stored: '%s'" % zdata[k])
+                    else:
+                        l.warning ("skipping zero-length zotero field with key value '%s'" % k)
+                l.info (zdata)
+                l.debug ("<<<<<<<<< END ENTRY")
+                zdatabank.append(zdata)
 
 
-                        # last access date
 
-                        # zotero export versions
-                        zdiv = etree.SubElement(xmldiv, 'div')
-                        zdiv.set('class', 'zotero')
-                        xmlhead = etree.SubElement(zdiv, 'h3')
-                        xmlhead.text = 'Additional bibliographic information on zotero.org'
-                        xmllist = etree.SubElement(zdiv, 'ul')
-                        appendField(xmllist, 'online record', e.link, 'li', 'url')
-    
 
-                    package = {}
-                    package['zapi_key'] = itemkey
-                    package['title'] = e.title
-                    package['url'] = url
-                    htmlpack = etree.tostring(xmldiv, pretty_print=True, encoding='utf-8', method='html')
-                    charset = chardet.detect(htmlpack)
-                    if charset['encoding'] not in ['ascii', 'utf-8']:
-                        print ("%s: encoding of '%s' was '%s'" % (itemkey, 'htmlpack', charset['encoding']))
-                        print htmlpack
-                    package['html'] = htmlpack
-                    h2md = html2text.HTML2Text()
-                    h2md.body_width = 0 # disable line wrapping
-                    htmlsimple = etree.tostring(xmldiv, pretty_print=True, encoding="ascii", method='html')
-                    charset = chardet.detect(htmlpack)
-                    if charset['encoding'] != 'ascii':
-                        print ("%s: encoding of '%s' was '%s'" % (itemkey, 'htmlsimple', charset['encoding']))
-                        print htmlsimple
-                    mdpack = h2md.handle(htmlsimple)
-                    charset = chardet.detect(mdpack)
-                    if charset['encoding'] != 'ascii':
-                        print ("%s: encoding of '%s' was '%s'" % (itemkey, 'mdpack', charset['encoding']))
-                        print mdpack
-                    package['md'] = mdpack
-                    packages.append(package)
+            # package the data we want and need to package
 
-            ccAddrs = []
-            if args.verbose:
-                ccAddrs.append(creds['debugCCAddr'])
-
-            mailer = smtplib.SMTP(creds['smtpServer'])
-            mailer.starttls()
-            mailer.login(creds['smtpUser'],getpass())
-
-            for p in packages:
-                if 'md' in p:
-                    print ("trying to send %s (%s)" % (p['zapi_key'], p['title']))
-                    sendToTumblr(mailer, p['title'], p['url'], p['md'], creds['tumblrFromAddr'], creds['tumblrToAddr'])
-            mailer.quit()
+            #packages = [] 
+            #for e in d.entries:
+            #    l.debug("======================================")
+            #    l.debug("title %s" % e.title)
+            #    l.debug("methods:")
+            #    l.debug(dir(e))
+            #    l.debug("keys:")
+            #    for k in e.keys():
+            #        l.debug ("key %s: %s" % (k, e[k]))
+            #    if e[u'zapi_itemtype'] != u'attachment':
+            #        itemkey = e.zapi_key
+            #        xmldiv = etree.Element('div')
+            #        xmldiv.set('id', itemkey)
+            #        appendField(xmldiv, 'title', e.title, 'p')
+            #        i = zlib.fetchItem(itemkey)
+            #        fields = i.apiObject
+            #        # print fields
+            #        if len(fields.keys()) > 0:
+            #            # url
+            #            if u'url' in fields:
+            #                url = fields[u'url']
+            #                if len(url) > 0:
+            #                    appendField(xmldiv, 'link', url, 'p', 'url')
+            #            # creators
+            #            doCreators(fields, xmldiv)
+            #            # abstract
+            #            doAbstract(fields, xmldiv)
+            #            # make an ordered list of any other fields
+            #            xmllist = etree.SubElement(xmldiv, 'ul')
+            #            skipk = [
+            #                u'relations',
+            #                u'collections',
+            #                u'creators',
+            #                u'tags',
+            #                u'url', 
+            #                u'itemKey',
+            #                u'itemVersion',
+            #                u'title',
+            #                u'abstractNote'
+            #            ]
+            #            keys = sorted(fields.keys())
+            #            for k in keys:
+            #                v = fields[k]
+            #                if v is None:
+            #                    pass
+            #                else:
+            #                    vt = type(v)
+            #                    if k in skipk:
+            #                        l.debug ("deliberately skipping zotero content field %s" % k)
+            #                    elif vt is unicode:
+            #                        if len(v) > 0:
+            #                            appendField(xmllist, k, v)
+            #                    elif vt is int:
+            #                        appendField(xmllist, k, u"%s" % v)
+            #                    else:
+            #                        l.debug ("no handler for %s so skipping zotero content field %s" % (vt, k))
+#
+#
+            #            # last access date
+#
+            #            # zotero export versions
+            #            zdiv = etree.SubElement(xmldiv, 'div')
+            #            zdiv.set('class', 'zotero')
+            #            xmlhead = etree.SubElement(zdiv, 'h3')
+            #            xmlhead.text = 'Additional bibliographic information on zotero.org'
+            #            xmllist = etree.SubElement(zdiv, 'ul')
+            #            appendField(xmllist, 'online record', e.link, 'li', 'url')
+    #
+#
+            #        package = {}
+            #        package['zapi_key'] = itemkey
+            #        package['title'] = e.title
+            #        package['url'] = url
+            #        htmlpack = etree.tostring(xmldiv, pretty_print=True, encoding='utf-8', method='html')
+            #        charset = chardet.detect(htmlpack)
+            #        if charset['encoding'] not in ['ascii', 'utf-8']:
+            #            print ("%s: encoding of '%s' was '%s'" % (itemkey, 'htmlpack', charset['encoding']))
+            #            print htmlpack
+            #        package['html'] = htmlpack
+            #        h2md = html2text.HTML2Text()
+            #        h2md.body_width = 0 # disable line wrapping
+            #        htmlsimple = etree.tostring(xmldiv, pretty_print=True, encoding="ascii", method='html')
+            #        charset = chardet.detect(htmlpack)
+            #        if charset['encoding'] != 'ascii':
+            #            print ("%s: encoding of '%s' was '%s'" % (itemkey, 'htmlsimple', charset['encoding']))
+            #            print htmlsimple
+            #        mdpack = h2md.handle(htmlsimple)
+            #        charset = chardet.detect(mdpack)
+            #        if charset['encoding'] != 'ascii':
+            #            print ("%s: encoding of '%s' was '%s'" % (itemkey, 'mdpack', charset['encoding']))
+            #            print mdpack
+            #        package['md'] = mdpack
+            #        packages.append(package)
+#
+            #ccAddrs = []
+            #if args.verbose:
+            #    ccAddrs.append(creds['debugCCAddr'])
+#
+            #mailer = smtplib.SMTP(creds['smtpServer'])
+            #mailer.starttls()
+            #mailer.login(creds['smtpUser'],getpass())
+#
+            #for p in packages:
+            #    if 'md' in p:
+            #        print ("trying to send %s (%s)" % (p['zapi_key'], p['title']))
+            #        sendToTumblr(mailer, p['title'], p['url'], p['md'], creds['tumblrFromAddr'], creds['tumblrToAddr'])
+            #mailer.quit()
 
         if 'last-modified-version' in d.headers.keys():
             prev_libversion = d.headers['last-modified-version'].strip()
