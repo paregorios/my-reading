@@ -6,6 +6,7 @@ template
 
 import argparse
 import chardet
+from decamelize import deCamelize
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import feedparser
@@ -22,6 +23,7 @@ import traceback
 from unicodedict import UnicodeDict
 sys.path.append('/Users/paregorios/Documents/files/L/libZotero/lib/py/libZotero')
 import zotero
+from zoterofields import defmasks, zfields
 
 SCRIPT_DESC = 'CHANGE ME'
 
@@ -30,10 +32,10 @@ CAMEL_FIELDS = [
     u'itemType',
 ]
 
+MD_INDENT = 4
 
 
-def deCamelize (camel):
-    return re.sub('([A-Z]+)', r' \1',camel).lower()
+
 
 def appendLink (parent, url, textValue=None):
     anchor = etree.SubElement(parent, 'a')
@@ -145,6 +147,93 @@ def cleanZVal (raw):
 
 
 
+def mdOutStr(k, v, context, indent=0):
+    if k == 'listitem' and type(v).__name__ != 'unicode' and indent > 0:
+        indent = indent - 3
+    if k == 'listitem' and type(v).__name__ == 'unicode':
+        vtype = 'listitem'
+    elif k in ['listitem', 'dictitem']:
+        vtype = "%s" % type(v).__name__
+    else:
+        vtype = zfields[k]['type']
+    
+
+    try:
+        mask = zfields[k]['mask']
+    except KeyError:
+        try:
+            mask = defmasks[context][vtype]
+        except KeyError:
+            l.error("no default mask for context = '%s' + type = '%s'" % (context, vtype))
+            return
+    mask = mask.rjust(len(mask) + indent)
+
+    try: 
+        caption = zfields[k]['caption']
+    except KeyError:
+        caption = deCamelize(k.encode('utf-8'))
+    if k == 'listitem':
+        caption = ''
+
+    try:
+        val = v.encode('utf-8')
+        if vtype == 'camel':
+            val = deCamelize(val)
+    except AttributeError:
+        val = v
+
+    if context == 'header' and k == 'creators':
+        print(mask % caption)
+        mask = "+ **%s:** %s"
+        mask = mask.rjust(len(mask) + indent)
+        for creator in val:
+            try:
+                name = "%s %s" % (creator['firstName'], creator['lastName'].upper())
+            except KeyError:
+                name = "%s" % creator['name']
+            print (mask % (creator['creatorType'], name))
+        print ("")
+        return
+
+    if context == 'zotsection' and k == 'authors':
+        print(mask % caption)
+        mask = '+ [%s](%s "%s")'
+        mask = mask.rjust(len(mask) + indent + MD_INDENT)
+        for author in val:
+            try:
+                name = "%s %s" % (author['firstName'], author['lastName'].upper())
+            except KeyError:
+                name = "%s" % author['name']
+            print (mask % (name, author['href'], "author's zotero username"))
+        return
+
+    if context == 'zotsection' and k == 'links':
+        print(mask % caption)
+        mask = '+ <a href="%(href)s" rel="alternate">%(type)s</a>'
+        mask = mask.rjust(len(mask) + indent + MD_INDENT)
+        for link in val:
+            print (mask % link)
+        return
+
+
+    if vtype in ['str', 'camel', 'unicode', 'mdurl']:
+        print(mask % (caption, val))
+    elif vtype in ['url']:
+        print(mask % (caption, val, val))
+    elif vtype in ['dict']:
+        if k != 'listitem':
+            print(mask % caption)
+        for k in sorted(val.keys()):
+            mdOutStr(k, val[k], context, indent+MD_INDENT)
+    elif vtype in ['list']:
+        print (mask % caption)
+        for li in val:
+            mdOutStr('listitem', li, context, indent+MD_INDENT)
+    elif vtype in ['listitem']:
+        print (mask % val)
+    else:
+        print ("skipping %s because type is '%s'" % (k, vtype))
+
 
 def main ():
 
@@ -208,13 +297,38 @@ def main ():
                 l.debug ("<<<<<<<<< END ENTRY")
                 zdatabank.append(zdata)
 
-        ukeys = []
-        for zdata in zdatabank:
-            for k in zdata.keys():
-                ukeys.append(k.encode('utf-8'))
-        ukeys = list(set(ukeys))
-        for k in sorted(ukeys):
-            print "%s" % k
+
+        zdatabank = sorted(zdatabank, key=lambda k: k['published_parsed'])
+        for z in zdatabank:
+            print ">>>>> %s" % z.getEncoded('zapi_key')
+            fields = z.keys()
+
+            headers = [k for k in fields if 'header' in zfields[k]['contexts']]
+            order_dict = {x: zfields[x]['order'] for x in headers}
+            headers = sorted(headers, key=lambda x: order_dict[x])
+            for k in headers:
+                mdOutStr(k, z[k], 'header')
+
+            header = '<h4>Additional bibliographic information</h4>'
+            print (header)
+            bullets = sorted([k for k in fields if 'bullets' in zfields[k]['contexts']])
+            for k in bullets:
+                mdOutStr(k, z[k], 'bullets')
+            print ('\n')
+
+            header = '<h4>Metadata associated with the bibliographic record in Zotero</h4>'
+            print (header)
+            zots = sorted([k for k in fields if 'zotsection' in zfields[k]['contexts']])
+            for k in zots:
+                mdOutStr(k, z[k], 'zotsection')
+
+        #ukeys = []
+        #for zdata in zdatabank:
+        #    for k in zdata.keys():
+        #        ukeys.append(k.encode('utf-8'))
+        #ukeys = list(set(ukeys))
+        #for k in sorted(ukeys):
+        #    print "%s" % k
 
 
 

@@ -1,198 +1,298 @@
 #!/usr/bin/env python'
 # -*- coding: utf-8 -*-'
 
+defmasks = {
+    'bullets' : {
+        'str' : "+ **%s:** %s" ,
+        'unicode' : "+ **%s:** %s",
+        'camel' : "+ **%s:** %s" ,
+        'url' : "+ **%s:** [%s](%s)",
+        'list' : "+ **%s:**" ,
+        'dict' : "+ **%s:**" ,
+        'listitem' : "+ %s",
+        'dictitem' : "+ **%s:** %s"
+        },
+    'header' : {
+        'str' : "**%s:** %s\n" ,
+        'camel' : "**%s:** %s\n" ,    
+        'url' : "**%s:** [%s](%s)\n",
+        'list' : "**%s:**" ,
+        'dict' : "+ **%s:**" ,
+        },
+    'zotsection' : {
+        'str' : "+ **%s:** %s" ,
+        'unicode' : "+ **%s:** %s",
+        'camel' : "+ **%s:** %s" ,    
+        'url' : "+ **%s:** [%s](%s)",
+        'list' : "+ **%s:**" ,
+        'dict' : "+ **%s:**" ,
+        'listitem' : "+ %s",
+        'dictitem' : "+ **%s:** %s",
+        'mdurl' : "+ **%s:** %s",
+    }
 
+}
 zfields = {
     'abstractNote':{
         'type':'str',
-        'mask':'%s'
+        'contexts':['header',],
+        'caption': 'abstract',
+        'mask': '**%s**:\n\n<p style="margin-left: 3em">%s</p>\n',
+        'order': 500,
         },
     'accessDate':{
         'type':'str',
-        'mask':'%s'
+        'contexts':['bullets',],
+        },
+    'archive':{
+        'type':'str',
+        'contexts':['bullets',],
         },
     'author':{
+        # suppress in favor of authors list
         'type':'str',
-        'mask':'%s'
+        'contexts':[],
         },
     'author_detail':{
-        'type':'str',
-        'mask':'%s'
+        # suppress in favor of authors list
+        'type':'dict',
+        'contexts':[],
         },
     'authors':{
-        'type':'str',
-        'mask':'%s'
+        'type':'list',
+        'contexts':['zotsection',],
+        'caption': 'authors of the bibliographic record'
+        },
+    'base':{
+        'type':'url',
+        'contexts':['bullets',],
         },
     'blogTitle':{
         'type':'str',
-        'mask':'%s'
+        'contexts':['bullets',],
         },
     'charset':{
         'type':'str',
-        'mask':'%s'
+        'contexts':['bullets',],
         },
     'collections':{
-        'type':'str',
-        'mask':'%s'
+        'type':'list',
+        'contexts':['zotsection',],
         },
     'content':{
-        'type':'str',
-        'mask':'%s'
+        # suppress
+        'type':'list',
+        'contexts':[],
         },
     'contentType':{
         'type':'str',
-        'mask':'%s'
+        'contexts':['bullets',],
         },
     'creators':{
-        'type':'str',
-        'mask':'%s'
+        'type':'list',
+        'contexts':['header',],
+        'order':400,
+        'mask':"**%s:**\n"
+        },
+    'creatorType':{
+        'type':'camel',
+        'contexts':['header',],
         },
     'date':{
         'type':'str',
-        'mask':'%s'
+        'contexts':['header',],
+        'order' : 300,
         },
     'filename':{
         'type':'str',
-        'mask':'%s'
+        'contexts':['bullets',],
+        },
+    'firstName':{
+        'type':'str',
+        'contexts':['header',],
         },
     'guidislink':{
+        # what is this? suppress for now
         'type':'str',
-        'mask':'%s'
+        'contexts':[],
         },
     'href':{
-        'type':'str',
-        'mask':'%s'
+        # markdown formatted URL for the creator
+        'type':'mdurl',
+        'contexts':[],
         },
     'id':{
-        'type':'str',
-        'mask':'%s'
+        # uri for the record in zotero
+        'type':'url',
+        'contexts':[],
         },
     'itemKey':{
         'type':'str',
-        'mask':'%s'
+        'contexts':['zotsection',],
+        'caption':'zotero item key for this record'
         },
     'itemType':{
-        'type':'str',
-        'mask':'%s'
+        'type':'camel',
+        'contexts':['bullets',],
         },
     'itemVersion':{
         'type':'str',
-        'mask':'%s'
+        'contexts':['zotsection',],
+        'caption': 'zotero version number for this record',
+        },
+    'lastName':{
+        'type':'str',
+        'contexts':['header',],
+        },
+    'language':{
+        'type':'str',
+        'contexts':['bullets',],
         },
     'link':{
-        'type':'str',
-        'mask':'%s'
+        # markdown formatted URL for the bibliographic record in zotero
+        'type':'url',
+        'contexts':[],
+        'caption':'link to the zotero record'
         },
     'linkMode':{
         'type':'str',
-        'mask':'%s'
+        'contexts':['bullets',],
         },
     'links':{
-        'type':'str',
-        'mask':'%s'
+        'type':'list',
+        'contexts':['zotsection',],
+        'caption':'zotero links to alternate formats of this record'
         },
     'md5':{
         'type':'str',
-        'mask':'%s'
+        'contexts':['zotsection',],
         },
     'mtime':{
         'type':'str',
-        'mask':'%s'
+        'contexts':['bullets',],
+        },
+    'name':{
+        'type':'str',
+        'contexts':['header',],
         },
     'parentItem':{
         'type':'str',
-        'mask':'%s'
+        'contexts':['bullets',],
         },
     'publicationTitle':{
         'type':'str',
-        'mask':'%s'
+        'contexts':['bullets',],
         },
     'published':{
         'type':'str',
-        'mask':'%s'
+        'contexts':['zotsection',],
+        'caption': 'original publication date of record'
         },
     'published_parsed':{
-        'type':'str',
-        'mask':'%s'
+        'type':'datetime',
+        'contexts':[],
         },
     'relations':{
         'type':'str',
-        'mask':'%s'
+        'contexts':['bullets',],
         },
     'reportType':{
         'type':'str',
-        'mask':'%s'
+        'contexts':['bullets',],
         },
     'rights':{
         'type':'str',
-        'mask':'%s'
+        'contexts':['bullets',],
+        },
+    'runningTime':{
+        'type':'str',
+        'contexts':['bullets',],
         },
     'section':{
         'type':'str',
-        'mask':'%s'
+        'contexts':['bullets',],
         },
     'shortTitle':{
         'type':'str',
-        'mask':'%s'
+        'contexts':['bullets',],
         },
-    'tags':{
+    'rel':{
         'type':'str',
-        'mask':'%s'
+        'contexts':['zotsection',],
+        },
+    'tag':{
+        'type': 'str',
+        'contexts':['zotsection',],
+    },
+    'tags':{
+        'type':'list',
+        'contexts':['zotsection',],
         },
     'title':{
         'type':'str',
-        'mask':'%s'
+        'contexts':['header',],
+        'order': 100,
         },
     'title_detail':{
+        'type':'dict',
+        'contexts':[],
+        },
+    'type':{
         'type':'str',
-        'mask':'%s'
+        'contexts':['bullets',],
         },
     'updated':{
         'type':'str',
-        'mask':'%s'
+        'contexts':['zotsection',],
+        'caption': 'last update to the record'
         },
     'updated_parsed':{
-        'type':'str',
-        'mask':'%s'
+        'type':'datetime',
+        'contexts':[],
         },
     'url':{
+        'type':'url',
+        'contexts':['header',],
+        'order':200,
+        },
+    'value':{
         'type':'str',
-        'mask':'%s'
+        'contexts':['bullets',],
         },
     'volume':{
         'type':'str',
-        'mask':'%s'
+        'contexts':['bullets',],
         },
     'websiteTitle':{
         'type':'str',
-        'mask':'%s'
+        'contexts':['bullets',],
         },
     'zapi_creatorsummary':{
         'type':'str',
-        'mask':'%s'
+        'contexts':[],
         },
     'zapi_itemtype':{
         'type':'str',
-        'mask':'%s'
+        'contexts':[],
         },
     'zapi_key':{
         'type':'str',
-        'mask':'%s'
+        'contexts':[],
         },
     'zapi_numchildren':{
         'type':'str',
-        'mask':'%s'
+        'contexts':[],
         },
     'zapi_numtags':{
         'type':'str',
-        'mask':'%s'
+        'contexts':[],
         },
     'zapi_version':{
         'type':'str',
-        'mask':'%s'
+        'contexts':[],
         },
     'zapi_year':{
         'type':'str',
-        'mask':'%s'
+        'contexts':[],
     },
 }
